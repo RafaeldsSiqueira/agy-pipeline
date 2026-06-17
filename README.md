@@ -26,21 +26,25 @@ O pipeline necessita das seguintes ferramentas instaladas no sistema:
 
 ### Execução
 
-Execute o script fornecendo o identificador do componente que deseja atualizar:
+Você pode executar o script diretamente da pasta do repositório ou utilizando o atalho global sincronizado em sua pasta de scripts:
 
 ```bash
+# Execução local no repositório
 ./scripts/atualizar_antigravity.sh <componente>
+
+# Ou via atalho global (acessível de qualquer lugar)
+~/scripts/atualizar_antigravity.sh <componente>
 ```
 
 #### Parâmetros Disponíveis:
-*   `ide` (Antigravity IDE)
-*   `2.0` (Antigravity 2.0)
-*   `cli` (Antigravity CLI)
-*   `sdk` (Antigravity SDK)
+*   `ide` (Antigravity IDE - Corrige permissões do chrome-sandbox)
+*   `2.0` (Antigravity 2.0 - Corrige permissões do chrome-sandbox)
+*   `cli` (Antigravity CLI - Instalação oficial com fallback no GitHub)
+*   `sdk` (Antigravity SDK - Atualização via PyPI, compatível com PEP 668 / `--break-system-packages` em distros modernas de forma automática)
 
 #### Exemplo:
 ```bash
-./scripts/atualizar_antigravity.sh ide
+~/scripts/atualizar_antigravity.sh ide
 ```
 
 ### Configurações com o arquivo `.env`

@@ -189,7 +189,7 @@ main() {
 
     # Se for a IDE ou 2.0 (Desktop) em ambiente normal, o aplicativo se auto-atualiza de fundo.
     # Exibimos as instruções oficiais e opcionalmente corrigimos permissões do Sandbox.
-    if ( [ "$COMPONENTE" = "ide" ] || [ "$COMPONENTE" = "2.0" ] ) && [ "${TEST_ENV:-}" != "true" ]; then
+    if [[ "$COMPONENTE" == "ide" || "$COMPONENTE" == "2.0" ]] && [[ "${TEST_ENV:-}" != "true" ]]; then
         log_info "Para o Antigravity 2.0 Desktop/IDE, o aplicativo gerencia as próprias atualizações em segundo plano nativamente."
         log_info "Caso precise baixar ou reinstalar a build mais recente, acesse: https://antigravity.google/download"
         log_info "----------------------------------------"
@@ -249,27 +249,23 @@ main() {
     # Mapeamento do ambiente do componente selecionado para download do GitHub
     local REPO=""
     local DEST_DIR="${DEST_DIR:-}"
-    local EXEC_NAME=""
     local NEED_SANDBOX=false
 
     case "$COMPONENTE" in
         ide)
             REPO="antigravity-ide"
             DEST_DIR="${DEST_DIR:-$HOME/antigravity-ide}"
-            EXEC_NAME="antigravity-ide"
             NEED_SANDBOX=true
             ;;
         2.0)
             REPO="antigravity-2.0"
             DEST_DIR="${DEST_DIR:-$HOME/antigravity-2.0}"
-            EXEC_NAME="antigravity-2.0"
             NEED_SANDBOX=true
             ;;
         cli)
             # Caso caia no fallback do GitHub Releases
             REPO="agy-pipeline"
             DEST_DIR="${DEST_DIR:-$HOME/antigravity-cli}"
-            EXEC_NAME="antigravity-cli"
             NEED_SANDBOX=false
             ;;
         *)
@@ -289,7 +285,8 @@ main() {
 
     # Verificar se já existe uma instalação lendo o package.json
     if [ -f "$package_json" ]; then
-        LOCAL_VERSION=$(jq -r '.version // "0.0.0"' "$package_json" | sed 's/^v//')
+        LOCAL_VERSION=$(jq -r '.version // "0.0.0"' "$package_json")
+        LOCAL_VERSION="${LOCAL_VERSION#v}"
         log_info "Versão local detectada: ${LOCAL_VERSION}"
     else
         log_warn "Instalação local não encontrada ou package.json ausente (será considerada como versão 0.0.0)."
@@ -322,7 +319,7 @@ main() {
     fi
 
     local REMOTE_VERSION
-    REMOTE_VERSION=$(echo "$TAG_NAME" | sed 's/^v//')
+    REMOTE_VERSION="${TAG_NAME#v}"
     log_info "Versão mais recente no GitHub: ${REMOTE_VERSION}"
 
     # Comparação de versões

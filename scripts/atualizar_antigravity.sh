@@ -215,7 +215,7 @@ main() {
             ;;
         cli)
             # Caso caia no fallback do GitHub Releases
-            REPO="antigravity-cli"
+            REPO="agy-pipeline"
             DEST_DIR="$HOME/antigravity-cli"
             EXEC_NAME="antigravity-cli"
             NEED_SANDBOX=false

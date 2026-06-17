@@ -53,6 +53,7 @@ O script suporta o carregamento automático de variáveis a partir de um arquivo
 
 *   **`GITHUB_ORG`**: Define a organização ou usuário dono dos repositórios no GitHub (Padrão: `google-antigravity`).
 *   **`GITHUB_TOKEN`**: Token de acesso pessoal do GitHub, obrigatório se os repositórios oficiais forem privados.
+*   **`DEST_DIR`**: Define o diretório de destino para a instalação, extração ou validação das permissões do SUID Sandbox no sistema (Padrão global da IDE: `/usr/share/antigravity`).
 
 Você também pode exportar essas variáveis diretamente no terminal se preferir:
 ```bash

@@ -6,6 +6,8 @@
 # Bloqueia arquivos que contenham tokens (como GITHUB_TOKEN) ou senhas locais
 .env
 .env.*
+!.env.exemplo
+!.env.example
 .env.local
 .env.development.local
 .env.test.local

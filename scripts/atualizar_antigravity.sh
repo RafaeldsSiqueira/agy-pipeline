@@ -149,8 +149,15 @@ instalar_atualizar_sdk() {
         exit 1
     fi
 
+    # Detectar suporte à flag --break-system-packages (PEP 668) em ambientes Debian/Ubuntu modernos
+    local extra_args=()
+    if $PIP_CMD install --help 2>&1 | grep -q "break-system-packages"; then
+        extra_args+=("--break-system-packages")
+        log_info "Detectado ambiente gerenciado externamente (PEP 668). Adicionando a flag '--break-system-packages'."
+    fi
+
     log_info "Instalando/Atualizando 'google-antigravity' via $PIP_CMD..."
-    if $PIP_CMD install --upgrade google-antigravity; then
+    if $PIP_CMD install --upgrade "${extra_args[@]}" google-antigravity; then
         log_success "Antigravity SDK atualizado com sucesso via PyPI."
     else
         log_error "Falha ao instalar o SDK via pip."

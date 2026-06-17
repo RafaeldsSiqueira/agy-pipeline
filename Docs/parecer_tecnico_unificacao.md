@@ -35,5 +35,3 @@ A unificação sob o script centralizado é **extremamente prática e válida**.
 
 ---
 
-> [!TIP]
-> **Recomendação**: Devemos prosseguir com a atualização do script. O processo não adiciona etapas desnecessárias; pelo contrário, ele **simplifica** a instalação do SDK e da CLI removendo scripts customizados de download e substituindo-os pelos canais oficiais de distribuição.

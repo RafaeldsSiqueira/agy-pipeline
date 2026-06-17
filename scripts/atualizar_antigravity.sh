@@ -10,6 +10,25 @@
 # Modo estrito do Bash para garantir robustez e segurança
 set -euo pipefail
 
+# --- Carregar Variáveis de Ambiente (.env) ---
+# Procura e carrega o arquivo .env se ele existir na pasta pai ou na pasta do script
+readonly SCRIPT_DIR_ABS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+DOTENV_PATH=""
+if [ -f "${SCRIPT_DIR_ABS}/../.env" ]; then
+    DOTENV_PATH="${SCRIPT_DIR_ABS}/../.env"
+elif [ -f "${SCRIPT_DIR_ABS}/.env" ]; then
+    DOTENV_PATH="${SCRIPT_DIR_ABS}/.env"
+fi
+
+if [ -n "$DOTENV_PATH" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Ignorar comentários e linhas vazias ou sem '='
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" != *=* ]] && continue
+        export "$line"
+    done < "$DOTENV_PATH"
+fi
+
 # --- Configurações Globais ---
 # Organização/Usuário padrão no GitHub (pode ser sobrescrita via variável de ambiente)
 GITHUB_ORG="${GITHUB_ORG:-antigravity-project}"

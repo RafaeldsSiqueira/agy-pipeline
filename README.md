@@ -43,16 +43,34 @@ Execute o script fornecendo o identificador do componente que deseja atualizar:
 ./scripts/atualizar_antigravity.sh ide
 ```
 
-### Configurações Avançadas
+### Configurações com o arquivo `.env`
 
-*   **Definição da Organização/Usuário**: Por padrão, o repositório é buscado na organização `antigravity-project`. Você pode sobrescrever isso exportando a variável:
-    ```bash
-    export GITHUB_ORG="seu-usuario-ou-organizacao"
-    ```
-*   **Autenticação**: Caso os repositórios sejam privados ou você sofra bloqueio por limite de requisições (rate limiting) na API do GitHub, exporte o seu token pessoal:
-    ```bash
-    export GITHUB_TOKEN="seu_github_token"
-    ```
+O script suporta o carregamento automático de variáveis a partir de um arquivo `.env` na raiz do projeto (copiado a partir do modelo [.env.exemplo](file:///home/rafael/agy-pipeline/.env.exemplo)).
+
+*   **`GITHUB_ORG`**: Define a organização ou usuário dono dos repositórios no GitHub (Padrão: `google-antigravity`).
+*   **`GITHUB_TOKEN`**: Token de acesso pessoal do GitHub, obrigatório se os repositórios oficiais forem privados.
+
+Você também pode exportar essas variáveis diretamente no terminal se preferir:
+```bash
+export GITHUB_ORG="google-antigravity"
+export GITHUB_TOKEN="seu_github_token"
+```
+
+---
+
+## 🧪 Ambiente de Testes (Sandbox)
+
+Para garantir que o script atualizador funcione perfeitamente sem risco de alterar os dados reais da sua máquina e sem depender de conexão de rede, o repositório conta com um script de testes isolados (Sandbox):
+
+```bash
+./scripts/test_sandbox.sh
+```
+
+Esse script realiza as seguintes operações:
+1. Redireciona a pasta `$HOME` para um diretório temporário isolado.
+2. Mocka as chamadas do comando `curl` para interceptar a API do GitHub.
+3. Mocka o comando `sudo` para capturar as solicitações de alteração de permissão do SUID Sandbox (`chrome-sandbox`).
+4. Valida se a extração e a correção de permissões ocorreram conforme o esperado.
 
 ---
 
@@ -61,10 +79,8 @@ Execute o script fornecendo o identificador do componente que deseja atualizar:
 Este repositório foi projetado para evoluir para uma esteira de Integração Contínua (CI) e Entrega Contínua (CD). Os fluxos planejados incluem:
 
 1.  **Linter & Validação de Scripts (CI)**:
-    *   Execução automática de testes do script Bash (utilizando `bats` ou `shellcheck`) a cada pull request.
+    *   Execução automática de testes do script Bash (utilizando `ShellCheck` definido em [lint.yml](file:///home/rafael/agy-pipeline/.github/workflows/lint.yml)) a cada push/pull request.
 2.  **Automação de Releases (CD)**:
     *   Sempre que uma tag de versão for gerada em qualquer um dos componentes (`ide`, `cli`, etc.), o GitHub Actions poderá notificar a esteira para validar o empacotamento.
 3.  **Geração Automática de Artefatos**:
     *   Compilação dos pacotes `.tar.gz` portáveis de cada componente e publicação automática no GitHub Releases.
-
-O esqueleto das GitHub Actions está localizado no diretório `.github/workflows/`.

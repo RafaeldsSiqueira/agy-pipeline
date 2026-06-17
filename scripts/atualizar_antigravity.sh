@@ -196,27 +196,27 @@ main() {
 
     # Mapeamento do ambiente do componente selecionado para download do GitHub
     local REPO=""
-    local DEST_DIR=""
+    local DEST_DIR="${DEST_DIR:-}"
     local EXEC_NAME=""
     local NEED_SANDBOX=false
 
     case "$COMPONENTE" in
         ide)
             REPO="antigravity-ide"
-            DEST_DIR="$HOME/antigravity-ide"
+            DEST_DIR="${DEST_DIR:-$HOME/antigravity-ide}"
             EXEC_NAME="antigravity-ide"
             NEED_SANDBOX=true
             ;;
         2.0)
             REPO="antigravity-2.0"
-            DEST_DIR="$HOME/antigravity-2.0"
+            DEST_DIR="${DEST_DIR:-$HOME/antigravity-2.0}"
             EXEC_NAME="antigravity-2.0"
             NEED_SANDBOX=true
             ;;
         cli)
             # Caso caia no fallback do GitHub Releases
             REPO="agy-pipeline"
-            DEST_DIR="$HOME/antigravity-cli"
+            DEST_DIR="${DEST_DIR:-$HOME/antigravity-cli}"
             EXEC_NAME="antigravity-cli"
             NEED_SANDBOX=false
             ;;

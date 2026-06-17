@@ -244,7 +244,7 @@ main() {
     TEMP_FILE=$(mktemp "/tmp/antigravity_${COMPONENTE}_XXXXXX.tar.gz")
 
     # Garantir que o arquivo temporário seja limpo ao final (ou em caso de erro)
-    trap 'rm -f "$TEMP_FILE"' EXIT
+    trap 'rm -f "'"${TEMP_FILE}"'"' EXIT
 
     log_info "Baixando o pacote a partir de: $DOWNLOAD_URL"
     if ! curl "${CURL_OPTS[@]}" -o "$TEMP_FILE" "$DOWNLOAD_URL"; then

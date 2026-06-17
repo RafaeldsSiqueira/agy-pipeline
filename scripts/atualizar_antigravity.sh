@@ -2,7 +2,7 @@
 # ==============================================================================
 # Script: atualizar_antigravity.sh
 # Descrição: Pipeline local de automação e gerenciamento de versões para o
-#            ecossistema Antigravity (IDE, 2.0, CLI, SDK).
+#            ecossistema Antigravity 2.0 (IDE, 2.0, CLI, SDK).
 # Autor: Antigravity AI Assistant
 # Data: 17 de Junho de 2026
 # ==============================================================================
@@ -30,8 +30,8 @@ if [ -n "$DOTENV_PATH" ]; then
 fi
 
 # --- Configurações Globais ---
-# Organização/Usuário padrão no GitHub (pode ser sobrescrita via variável de ambiente)
-GITHUB_ORG="${GITHUB_ORG:-antigravity-project}"
+# Organização/Usuário padrão no GitHub (Hospedagem oficial do Antigravity)
+GITHUB_ORG="${GITHUB_ORG:-google-antigravity}"
 
 # Cores para saída formatada no terminal (apenas se for terminal interativo TTY)
 if [ -t 1 ]; then
@@ -72,9 +72,9 @@ Uso: $(basename "$0") <componente>
 
 Componentes disponíveis:
   ide   - Antigravity IDE (Interface Gráfica baseada em Electron)
-  2.0   - Antigravity 2.0 (Nova Interface Gráfica baseada em Electron)
-  cli   - Antigravity CLI (Interface de Linha de Comando)
-  sdk   - Antigravity SDK (Bibliotecas de Desenvolvimento)
+  2.0   - Antigravity 2.0 (Nova Interface Gráfica / App Desktop)
+  cli   - Antigravity CLI (agy - Canal Oficial com Fallback no GitHub)
+  sdk   - Antigravity SDK (Instalação e atualização via PyPI/pip)
 
 Opções globais:
   -h, --help    Exibe este menu de ajuda
@@ -126,6 +126,30 @@ comparar_versoes() {
     fi
 }
 
+# --- Instalação do SDK via PyPI/pip ---
+instalar_atualizar_sdk() {
+    log_info "Iniciando verificação do gerenciador de pacotes pip..."
+    local PIP_CMD=""
+    
+    if command -v pip3 &>/dev/null; then
+        PIP_CMD="pip3"
+    elif command -v pip &>/dev/null; then
+        PIP_CMD="pip"
+    else
+        log_error "O gerenciador de pacotes Python 'pip' ou 'pip3' não foi encontrado."
+        log_error "Instale-o usando o gerenciador de pacotes (ex: sudo apt install python3-pip) e tente novamente."
+        exit 1
+    fi
+
+    log_info "Instalando/Atualizando 'google-antigravity' via $PIP_CMD..."
+    if $PIP_CMD install --upgrade google-antigravity; then
+        log_success "Antigravity SDK atualizado com sucesso via PyPI."
+    else
+        log_error "Falha ao instalar o SDK via pip."
+        exit 1
+    fi
+}
+
 # --- Principal Fluxo de Execução ---
 main() {
     # Verificar se foi passado algum argumento
@@ -142,10 +166,35 @@ main() {
         exit 0
     fi
 
-    # Verificar dependências do sistema
+    # Se for o SDK, rodamos o fluxo simplificado do pip e saímos
+    if [ "$COMPONENTE" = "sdk" ]; then
+        instalar_atualizar_sdk
+        exit 0
+    fi
+
+    # Se for a CLI (agy), tentamos o instalador oficial primeiro
+    if [ "$COMPONENTE" = "cli" ]; then
+        log_info "Tentando instalar/atualizar o Antigravity CLI via canal oficial (antigravity.google)..."
+        
+        # Ignorando set -e temporariamente para tratar a falha de conexão do canal oficial
+        set +e
+        curl -fsSL https://antigravity.google/cli/install.sh | bash
+        local curl_status=$?
+        set -e
+        
+        if [ "$curl_status" -eq 0 ]; then
+            log_success "Antigravity CLI atualizado com sucesso via instalador oficial."
+            exit 0
+        else
+            log_warn "Servidor oficial 'antigravity.google' indisponível (Erro curl: $curl_status)."
+            log_warn "Tentando fallback de download direto via GitHub Releases..."
+        fi
+    fi
+
+    # Verificar dependências do sistema para o fluxo de download/extração (.tar.gz)
     verificar_dependencias
 
-    # Mapeamento do ambiente do componente selecionado
+    # Mapeamento do ambiente do componente selecionado para download do GitHub
     local REPO=""
     local DEST_DIR=""
     local EXEC_NAME=""
@@ -165,15 +214,10 @@ main() {
             NEED_SANDBOX=true
             ;;
         cli)
+            # Caso caia no fallback do GitHub Releases
             REPO="antigravity-cli"
             DEST_DIR="$HOME/antigravity-cli"
             EXEC_NAME="antigravity-cli"
-            NEED_SANDBOX=false
-            ;;
-        sdk)
-            REPO="antigravity-sdk"
-            DEST_DIR="$HOME/antigravity-sdk"
-            EXEC_NAME=""
             NEED_SANDBOX=false
             ;;
         *)
@@ -183,7 +227,7 @@ main() {
             ;;
     esac
 
-    log_info "Iniciando verificação para o componente: ${COLOR_GREEN}${COMPONENTE}${COLOR_RESET}"
+    log_info "Iniciando verificação no GitHub para o componente: ${COLOR_GREEN}${COMPONENTE}${COLOR_RESET}"
     log_info "Repositório: ${GITHUB_ORG}/${REPO}"
     log_info "Pasta de destino: ${DEST_DIR}"
 
@@ -193,7 +237,6 @@ main() {
 
     # Verificar se já existe uma instalação lendo o package.json
     if [ -f "$package_json" ]; then
-        # Lê a propriedade 'version', remove as aspas e o prefixo 'v' se houver
         LOCAL_VERSION=$(jq -r '.version // "0.0.0"' "$package_json" | sed 's/^v//')
         log_info "Versão local detectada: ${LOCAL_VERSION}"
     else
@@ -204,7 +247,6 @@ main() {
     log_info "Consultando a API do GitHub para a versão mais recente..."
     local CURL_OPTS=(-s -SL --fail --connect-timeout 10)
     
-    # Se houver um Token do GitHub configurado na sessão, utiliza-o para evitar rate-limiting
     if [ -n "${GITHUB_TOKEN:-}" ]; then
         CURL_OPTS+=(-H "Authorization: token $GITHUB_TOKEN")
     fi
@@ -243,11 +285,9 @@ main() {
     log_info "Uma nova versão (${REMOTE_VERSION}) foi encontrada! Iniciando processo de atualização..."
 
     # --- 2. Filtro de Assets e Download ---
-    # Filtrar por pacotes que terminem com .tar.gz
     local DOWNLOAD_URL
     DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
 
-    # Fallback para o tarball de código fonte caso nenhum asset pré-compilado .tar.gz seja encontrado
     if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
         log_warn "Nenhum asset pré-compilado '.tar.gz' foi encontrado. Usando o tarball de código fonte do release."
         DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r '.tarball_url')
@@ -262,7 +302,7 @@ main() {
     local TEMP_FILE
     TEMP_FILE=$(mktemp "/tmp/antigravity_${COMPONENTE}_XXXXXX.tar.gz")
 
-    # Garantir que o arquivo temporário seja limpo ao final (ou em caso de erro)
+    # Garantir que o arquivo temporário seja limpo ao final
     trap 'rm -f "'"${TEMP_FILE}"'"' EXIT
 
     log_info "Baixando o pacote a partir de: $DOWNLOAD_URL"
@@ -273,7 +313,6 @@ main() {
     log_success "Download concluído com sucesso."
 
     # --- 3. Limpeza do Destino e Extração Limpa ---
-    # Obter caminho absoluto do script para evitar deletá-lo
     local SCRIPT_PATH
     SCRIPT_PATH=$(realpath "$0")
 
@@ -281,20 +320,17 @@ main() {
     if [ ! -d "$DEST_DIR" ]; then
         mkdir -p "$DEST_DIR"
     else
-        # Remove todos os arquivos do diretório de destino, exceto o próprio script
         find "$DEST_DIR" -mindepth 1 -maxdepth 1 ! -samefile "$SCRIPT_PATH" -exec rm -rf {} +
     fi
 
     log_info "Extraindo o pacote..."
     
-    # Validação inteligente de empacotamento (evita problemas com a flag --strip-components)
     local strip_flag=""
     local first_entry
     first_entry=$(tar -tf "$TEMP_FILE" | head -n1)
     local prefix
     prefix=$(echo "$first_entry" | cut -d/ -f1)
 
-    # Se todas as entradas do tar começam com o mesmo prefixo, podemos usar --strip-components=1
     if [ -n "$prefix" ] && ! tar -tf "$TEMP_FILE" | grep -qvE "^${prefix}(/|$)"; then
         strip_flag="--strip-components=1"
         log_info "Detectado diretório raiz único '${prefix}' no pacote. Removendo prefixo na extração."
@@ -318,7 +354,7 @@ main() {
             if sudo chown root:root "$sandbox_path" && sudo chmod 4755 "$sandbox_path"; then
                 log_success "Permissões do SUID Sandbox corrigidas com sucesso (owner: root, mode: 4755)."
             else
-                log_error "Falha ao ajustar permissões do SUID Sandbox. O executável pode apresentar erros de execução."
+                log_error "Falha ao ajustar permissões do SUID Sandbox."
             fi
         else
             log_warn "O arquivo 'chrome-sandbox' não foi encontrado nesta versão extraída."

@@ -151,6 +151,8 @@ executar_teste() {
     env PATH="${SANDBOX_DIR}:${PATH}" \
         HOME="${MOCK_HOME}" \
         GITHUB_ORG="test-org" \
+        TEST_ENV="true" \
+        DEST_DIR="${MOCK_HOME}/antigravity-ide" \
         bash -x "${UPDATER_SCRIPT}" ide
 }
 

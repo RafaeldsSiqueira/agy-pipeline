@@ -25,7 +25,15 @@ if [ -n "$DOTENV_PATH" ]; then
         # Ignorar comentários e linhas vazias ou sem '='
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
         [[ "$line" != *=* ]] && continue
-        export "$line"
+        
+        # Extrair nome da variável e valor
+        var_name=$(echo "$line" | cut -d= -f1)
+        var_value=$(echo "$line" | cut -d= -f2-)
+        
+        # Só exportar se a variável não estiver previamente definida no ambiente
+        if [ -z "${!var_name:-}" ]; then
+            export "${var_name}=${var_value}"
+        fi
     done < "$DOTENV_PATH"
 fi
 
@@ -169,6 +177,43 @@ main() {
     # Se for o SDK, rodamos o fluxo simplificado do pip e saímos
     if [ "$COMPONENTE" = "sdk" ]; then
         instalar_atualizar_sdk
+        exit 0
+    fi
+
+    # Se for a IDE ou 2.0 (Desktop) em ambiente normal, o aplicativo se auto-atualiza de fundo.
+    # Exibimos as instruções oficiais e opcionalmente corrigimos permissões do Sandbox.
+    if ( [ "$COMPONENTE" = "ide" ] || [ "$COMPONENTE" = "2.0" ] ) && [ "${TEST_ENV:-}" != "true" ]; then
+        log_info "Para o Antigravity 2.0 Desktop/IDE, o aplicativo gerencia as próprias atualizações em segundo plano nativamente."
+        log_info "Caso precise baixar ou reinstalar a build mais recente, acesse: https://antigravity.google/download"
+        log_info "----------------------------------------"
+
+        # Definir a pasta padrão se DEST_DIR não estiver configurada no .env
+        local target_dir="${DEST_DIR:-/usr/share/antigravity}"
+        local sandbox_path="${target_dir}/chrome-sandbox"
+
+        if [ -f "$sandbox_path" ]; then
+            log_info "Verificando permissões do SUID Sandbox em: $sandbox_path"
+            
+            # Verificar se já é dono root e tem permissão 4755
+            local current_owner=$(stat -c '%U' "$sandbox_path")
+            local current_perms=$(stat -c '%a' "$sandbox_path")
+            
+            if [ "$current_owner" != "root" ] || [ "$current_perms" != "4755" ]; then
+                log_warn "Permissões incorretas no chrome-sandbox (Dono: $current_owner, Permissões: $current_perms)."
+                log_info "Aplicando correção de permissões de superusuário..."
+                
+                # Executa com sudo para corrigir permissões
+                if sudo chown root:root "$sandbox_path" && sudo chmod 4755 "$sandbox_path"; then
+                    log_success "Permissões do SUID Sandbox corrigidas com sucesso!"
+                else
+                    log_error "Falha ao corrigir permissões do chrome-sandbox."
+                fi
+            else
+                log_success "Permissões do SUID Sandbox já estão configuradas corretamente (root:root, 4755)."
+            fi
+        else
+            log_warn "Nenhum arquivo 'chrome-sandbox' encontrado em: $sandbox_path"
+        fi
         exit 0
     fi
 

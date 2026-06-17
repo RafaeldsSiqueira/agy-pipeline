@@ -84,3 +84,27 @@ Este repositório foi projetado para evoluir para uma esteira de Integração Co
     *   Sempre que uma tag de versão for gerada em qualquer um dos componentes (`ide`, `cli`, etc.), o GitHub Actions poderá notificar a esteira para validar o empacotamento.
 3.  **Geração Automática de Artefatos**:
     *   Compilação dos pacotes `.tar.gz` portáveis de cada componente e publicação automática no GitHub Releases.
+
+---
+
+## 🔍 Resolução de Problemas / Observações Importantes
+
+### Alerta de "Update is Available" na IDE
+Se a IDE apresentar um pop-up notificando que uma nova versão (ex: `2.0.6`) está disponível, isso indica que a versão local no sistema está desatualizada em relação ao canal oficial.
+
+**Como resolver:**
+
+1.  **Se instalado de forma portátil via tarball (gerenciado por este script)**:
+    *   Verifique se o seu arquivo `.env` possui o `GITHUB_ORG` correto e um `GITHUB_TOKEN` válido com acesso de leitura aos repositórios.
+    *   Rode o script para baixar e substituir os arquivos locais pela versão oficial:
+        ```bash
+        cd ~/agy-pipeline
+        ./scripts/atualizar_antigravity.sh ide
+        ```
+    *   Após a atualização, o `package.json` local refletirá a versão correta e o pop-up deixará de aparecer.
+
+2.  **Se instalado globalmente via gerenciador de pacotes do sistema (`apt`)**:
+    *   Atualize o pacote diretamente pelo terminal do sistema:
+        ```bash
+        sudo apt update && sudo apt install --only-upgrade antigravity-ide
+        ```

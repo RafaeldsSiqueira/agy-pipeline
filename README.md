@@ -62,6 +62,18 @@ Você pode executar o script diretamente da pasta do repositório ou utilizando 
     *   `2.0` será instalado em: `/usr/share/antigravity-2.0`
 *   **Uso Inteligente de Sudo:** O script verifica as permissões de escrita da pasta de destino. Se for uma pasta de sistema que exige privilégios de administrador (como `/usr/share/`), o script executará a limpeza do diretório e a extração do tarball usando `sudo` de forma automatizada.
 
+### Funcionamento dos Componentes (Online vs. Local)
+
+O script possui comportamentos específicos para cada tipo de componente:
+
+1.  **`ide` e `2.0` (Aplicações com Interface Gráfica / Electron):**
+    *   **Modo Instalador (com arquivo local):** Se o arquivo `.tar.gz` correspondente for encontrado em `~/Downloads` ou passado como argumento, o script executará a instalação completa (limpeza de diretório, extração, configuração de atalhos e correção de permissões).
+    *   **Modo Reparador (sem arquivo local):** Se executado sem arquivo local, o script não fará download via web (pois as aplicações Electron se auto-atualizam nativamente). Em vez disso, ele verificará e corrigirá as permissões do `chrome-sandbox` da instalação atual.
+2.  **`cli` (Linha de Comando):**
+    *   **Totalmente Automático via Web:** Busca o instalador oficial na web. Se indisponível, realiza o download automático do release mais recente no GitHub Releases e instala em `~/antigravity-cli`. Não necessita de arquivos locais prévios.
+3.  **`sdk` (Biblioteca Python):**
+    *   **Totalmente Automático via PyPI:** Atualiza o pacote diretamente utilizando o `pip`. Caso esteja em distribuições Linux com ambientes gerenciados externamente (PEP 668), adiciona automaticamente a flag `--break-system-packages`.
+
 ### Configurações com o arquivo `.env`
 
 O script suporta o carregamento automático de variáveis a partir de um arquivo `.env` na raiz do projeto (copiado a partir do modelo [.env.exemplo](file:///home/rafael/agy-pipeline/.env.exemplo)).

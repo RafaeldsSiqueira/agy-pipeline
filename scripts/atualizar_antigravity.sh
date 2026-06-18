@@ -336,7 +336,6 @@ main() {
     # --- 1. Validação Inteligente de Versões (Pré-Download) e Download ---
     local TEMP_FILE=""
     local REMOTE_VERSION="local"
-    local delete_temp_file=false
 
     if [ -n "$LOCAL_FILE_PATH" ]; then
         TEMP_FILE="$LOCAL_FILE_PATH"
@@ -421,7 +420,6 @@ main() {
 
         # Criar arquivo temporário para download
         TEMP_FILE=$(mktemp "/tmp/antigravity_${COMPONENTE}_XXXXXX.tar.gz")
-        delete_temp_file=true
 
         # Garantir que o arquivo temporário seja limpo ao final
         trap 'rm -f "'"${TEMP_FILE}"'"' EXIT

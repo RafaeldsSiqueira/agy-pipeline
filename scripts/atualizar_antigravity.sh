@@ -76,7 +76,7 @@ log_error() {
 # --- Menu de Ajuda / Uso ---
 exibir_ajuda() {
     cat <<EOF
-Uso: $(basename "$0") <componente>
+Uso: $(basename "$0") <componente> [caminho_do_pacote_local.tar.gz]
 
 Componentes disponíveis:
   ide   - Antigravity IDE (Interface Gráfica baseada em Electron)
@@ -89,6 +89,7 @@ Opções globais:
 
 Exemplo de uso:
   $ $(basename "$0") ide
+  $ $(basename "$0") ide ~/Downloads/Antigravity\ IDE.tar.gz
 EOF
 }
 
@@ -168,12 +169,13 @@ instalar_atualizar_sdk() {
 # --- Principal Fluxo de Execução ---
 main() {
     # Verificar se foi passado algum argumento
-    if [ $# -ne 1 ]; then
+    if [ $# -lt 1 ] || [ $# -gt 2 ]; then
         exibir_ajuda
         exit 1
     fi
 
     local COMPONENTE="$1"
+    local ARQUIVO_LOCAL="${2:-}"
 
     # Verificar opção de ajuda
     if [ "$COMPONENTE" = "-h" ] || [ "$COMPONENTE" = "--help" ]; then
@@ -181,22 +183,101 @@ main() {
         exit 0
     fi
 
-    # Se for o SDK, rodamos o fluxo simplificado do pip e saímos
-    if [ "$COMPONENTE" = "sdk" ]; then
-        instalar_atualizar_sdk
-        exit 0
+    # Mapeamento do ambiente do componente selecionado
+    local REPO=""
+    local NEED_SANDBOX=false
+    local target_base="${DEST_DIR:-}"
+
+    case "$COMPONENTE" in
+        ide)
+            REPO="antigravity-ide"
+            if [ -n "$target_base" ]; then
+                if [ "$target_base" = "/usr/share/antigravity" ]; then
+                    DEST_DIR="/usr/share/antigravity-ide"
+                else
+                    DEST_DIR="$target_base"
+                fi
+            else
+                DEST_DIR="$HOME/antigravity-ide"
+            fi
+            NEED_SANDBOX=true
+            ;;
+        2.0)
+            REPO="antigravity-2.0"
+            if [ -n "$target_base" ]; then
+                if [ "$target_base" = "/usr/share/antigravity" ]; then
+                    DEST_DIR="/usr/share/antigravity-2.0"
+                else
+                    DEST_DIR="$target_base"
+                fi
+            else
+                DEST_DIR="$HOME/antigravity-2.0"
+            fi
+            NEED_SANDBOX=true
+            ;;
+        cli)
+            # Caso caia no fallback do GitHub Releases
+            REPO="agy-pipeline"
+            DEST_DIR="${DEST_DIR:-$HOME/antigravity-cli}"
+            NEED_SANDBOX=false
+            ;;
+        sdk)
+            instalar_atualizar_sdk
+            exit 0
+            ;;
+        *)
+            log_error "Componente inválido: '$COMPONENTE'"
+            exibir_ajuda
+            exit 1
+            ;;
+    esac
+
+    # Procurar por arquivo local caso seja ide ou 2.0
+    local LOCAL_FILE_PATH=""
+    if [[ "$COMPONENTE" == "ide" || "$COMPONENTE" == "2.0" ]]; then
+        if [ -n "$ARQUIVO_LOCAL" ]; then
+            if [ -f "$ARQUIVO_LOCAL" ]; then
+                LOCAL_FILE_PATH=$(realpath "$ARQUIVO_LOCAL")
+            else
+                log_error "O arquivo local especificado não existe: $ARQUIVO_LOCAL"
+                exit 1
+            fi
+        else
+            # Tentar autodetectar na pasta Downloads
+            if [ "$COMPONENTE" = "ide" ]; then
+                if [ -f "$HOME/Downloads/Antigravity IDE.tar.gz" ]; then
+                    LOCAL_FILE_PATH="$HOME/Downloads/Antigravity IDE.tar.gz"
+                else
+                    local files=("$HOME/Downloads"/antigravity-ide*.tar.gz)
+                    if [ -f "${files[0]:-}" ]; then
+                        LOCAL_FILE_PATH="${files[0]}"
+                    fi
+                fi
+            elif [ "$COMPONENTE" = "2.0" ]; then
+                if [ -f "$HOME/Downloads/Antigravity.tar.gz" ]; then
+                    LOCAL_FILE_PATH="$HOME/Downloads/Antigravity.tar.gz"
+                else
+                    local files=("$HOME/Downloads"/antigravity-2.0*.tar.gz)
+                    if [ -f "${files[0]:-}" ]; then
+                        LOCAL_FILE_PATH="${files[0]}"
+                    fi
+                fi
+            fi
+        fi
     fi
 
-    # Se for a IDE ou 2.0 (Desktop) em ambiente normal, o aplicativo se auto-atualiza de fundo.
-    # Exibimos as instruções oficiais e opcionalmente corrigimos permissões do Sandbox.
-    if [[ "$COMPONENTE" == "ide" || "$COMPONENTE" == "2.0" ]] && [[ "${TEST_ENV:-}" != "true" ]]; then
+    if [ -n "$LOCAL_FILE_PATH" ]; then
+        log_info "Detectado arquivo local para instalação: ${COLOR_GREEN}${LOCAL_FILE_PATH}${COLOR_RESET}"
+    fi
+
+    # Se for a IDE ou 2.0 (Desktop) em ambiente normal E não houver arquivo local,
+    # o aplicativo se auto-atualiza de fundo.
+    if [[ "$COMPONENTE" == "ide" || "$COMPONENTE" == "2.0" ]] && [[ "${TEST_ENV:-}" != "true" ]] && [[ -z "$LOCAL_FILE_PATH" ]]; then
         log_info "Para o Antigravity 2.0 Desktop/IDE, o aplicativo gerencia as próprias atualizações em segundo plano nativamente."
         log_info "Caso precise baixar ou reinstalar a build mais recente, acesse: https://antigravity.google/download"
         log_info "----------------------------------------"
 
-        # Definir a pasta padrão se DEST_DIR não estiver configurada no .env
-        local target_dir="${DEST_DIR:-/usr/share/antigravity}"
-        local sandbox_path="${target_dir}/chrome-sandbox"
+        local sandbox_path="${DEST_DIR}/chrome-sandbox"
 
         if [ -f "$sandbox_path" ]; then
             log_info "Verificando permissões do SUID Sandbox em: $sandbox_path"
@@ -225,7 +306,7 @@ main() {
     fi
 
     # Se for a CLI (agy), tentamos o instalador oficial primeiro
-    if [ "$COMPONENTE" = "cli" ]; then
+    if [ "$COMPONENTE" = "cli" ] && [ -z "$LOCAL_FILE_PATH" ]; then
         log_info "Tentando instalar/atualizar o Antigravity CLI via canal oficial (antigravity.google)..."
         
         # Ignorando set -e temporariamente para tratar a falha de conexão do canal oficial
@@ -246,120 +327,123 @@ main() {
     # Verificar dependências do sistema para o fluxo de download/extração (.tar.gz)
     verificar_dependencias
 
-    # Mapeamento do ambiente do componente selecionado para download do GitHub
-    local REPO=""
-    local DEST_DIR="${DEST_DIR:-}"
-    local NEED_SANDBOX=false
-
-    case "$COMPONENTE" in
-        ide)
-            REPO="antigravity-ide"
-            DEST_DIR="${DEST_DIR:-$HOME/antigravity-ide}"
-            NEED_SANDBOX=true
-            ;;
-        2.0)
-            REPO="antigravity-2.0"
-            DEST_DIR="${DEST_DIR:-$HOME/antigravity-2.0}"
-            NEED_SANDBOX=true
-            ;;
-        cli)
-            # Caso caia no fallback do GitHub Releases
-            REPO="agy-pipeline"
-            DEST_DIR="${DEST_DIR:-$HOME/antigravity-cli}"
-            NEED_SANDBOX=false
-            ;;
-        *)
-            log_error "Componente inválido: '$COMPONENTE'"
-            exibir_ajuda
-            exit 1
-            ;;
-    esac
-
-    log_info "Iniciando verificação no GitHub para o componente: ${COLOR_GREEN}${COMPONENTE}${COLOR_RESET}"
-    log_info "Repositório: ${GITHUB_ORG}/${REPO}"
+    log_info "Iniciando processo para o componente: ${COLOR_GREEN}${COMPONENTE}${COLOR_RESET}"
+    if [ -z "$LOCAL_FILE_PATH" ]; then
+        log_info "Repositório: ${GITHUB_ORG}/${REPO}"
+    fi
     log_info "Pasta de destino: ${DEST_DIR}"
 
-    # --- 1. Validação Inteligente de Versões (Pré-Download) ---
-    local LOCAL_VERSION="0.0.0"
-    local package_json="${DEST_DIR}/package.json"
+    # --- 1. Validação Inteligente de Versões (Pré-Download) e Download ---
+    local TEMP_FILE=""
+    local REMOTE_VERSION="local"
+    local delete_temp_file=false
 
-    # Verificar se já existe uma instalação lendo o package.json
-    if [ -f "$package_json" ]; then
-        LOCAL_VERSION=$(jq -r '.version // "0.0.0"' "$package_json")
-        LOCAL_VERSION="${LOCAL_VERSION#v}"
-        log_info "Versão local detectada: ${LOCAL_VERSION}"
+    if [ -n "$LOCAL_FILE_PATH" ]; then
+        TEMP_FILE="$LOCAL_FILE_PATH"
+        # Tentar extrair a versão do package.json de dentro do tar.gz
+        if tar -tzf "$TEMP_FILE" | grep -q "package.json"; then
+            local pkg_json_tar_path
+            pkg_json_tar_path=$(tar -tzf "$TEMP_FILE" | grep "package.json" | head -n1)
+            local version_in_tar
+            if version_in_tar=$(tar -Oxzf "$TEMP_FILE" "$pkg_json_tar_path" 2>/dev/null | jq -r '.version // empty'); then
+                if [ -n "$version_in_tar" ]; then
+                    REMOTE_VERSION="$version_in_tar"
+                fi
+            fi
+        fi
+        log_info "Versão do pacote local: ${REMOTE_VERSION}"
     else
-        log_warn "Instalação local não encontrada ou package.json ausente (será considerada como versão 0.0.0)."
+        local LOCAL_VERSION="0.0.0"
+        local package_json="${DEST_DIR}/package.json"
+
+        # Verificar se já existe uma instalação lendo o package.json
+        if [ -f "$package_json" ]; then
+            LOCAL_VERSION=$(jq -r '.version // "0.0.0"' "$package_json")
+            LOCAL_VERSION="${LOCAL_VERSION#v}"
+            log_info "Versão local detectada: ${LOCAL_VERSION}"
+        else
+            log_warn "Instalação local não encontrada ou package.json ausente (será considerada como versão 0.0.0)."
+        fi
+
+        # Consultar API do GitHub para obter a versão remota (latest)
+        log_info "Consultando a API do GitHub para a versão mais recente..."
+        local CURL_OPTS=(-s -SL --fail --connect-timeout 10)
+        
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            CURL_OPTS+=(-H "Authorization: token $GITHUB_TOKEN")
+        fi
+
+        local API_URL="https://api.github.com/repos/${GITHUB_ORG}/${REPO}/releases/latest"
+        local RELEASE_JSON
+        
+        if ! RELEASE_JSON=$(curl "${CURL_OPTS[@]}" "$API_URL"); then
+            log_error "Falha ao consultar a API do GitHub em $API_URL."
+            log_error "Certifique-se de que o repositório é público ou que a variável GITHUB_TOKEN está configurada corretamente."
+            exit 1
+        fi
+
+        # Extrair tag e versão remota
+        local TAG_NAME
+        TAG_NAME=$(echo "$RELEASE_JSON" | jq -r '.tag_name // empty')
+        
+        if [ -z "$TAG_NAME" ]; then
+            log_error "Nenhuma tag ou release pública foi encontrada no repositório ${GITHUB_ORG}/${REPO}."
+            exit 1
+        fi
+
+        REMOTE_VERSION="${TAG_NAME#v}"
+        log_info "Versão mais recente no GitHub: ${REMOTE_VERSION}"
+
+        # Comparação de versões
+        if comparar_versoes "$LOCAL_VERSION" "$REMOTE_VERSION"; then
+            log_success "O sistema já está atualizado na versão mais recente (${LOCAL_VERSION})."
+            exit 0
+        elif [ $? -eq 2 ]; then
+            log_warn "A versão local (${LOCAL_VERSION}) é mais recente que a do GitHub (${REMOTE_VERSION}). Nenhuma ação necessária."
+            exit 0
+        fi
+
+        log_info "Uma nova versão (${REMOTE_VERSION}) foi encontrada! Iniciando processo de atualização..."
+
+        # --- 2. Filtro de Assets e Download ---
+        local DOWNLOAD_URL
+        DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
+
+        if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
+            log_warn "Nenhum asset pré-compilado '.tar.gz' foi encontrado. Usando o tarball de código fonte do release."
+            DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r '.tarball_url')
+        fi
+
+        if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
+            log_error "Não foi possível determinar a URL de download para o pacote."
+            exit 1
+        fi
+
+        # Criar arquivo temporário para download
+        TEMP_FILE=$(mktemp "/tmp/antigravity_${COMPONENTE}_XXXXXX.tar.gz")
+        delete_temp_file=true
+
+        # Garantir que o arquivo temporário seja limpo ao final
+        trap 'rm -f "'"${TEMP_FILE}"'"' EXIT
+
+        log_info "Baixando o pacote a partir de: $DOWNLOAD_URL"
+        if ! curl "${CURL_OPTS[@]}" -o "$TEMP_FILE" "$DOWNLOAD_URL"; then
+            log_error "Falha ao baixar o arquivo de atualização."
+            exit 1
+        fi
+        log_success "Download concluído com sucesso."
     fi
 
-    # Consultar API do GitHub para obter a versão remota (latest)
-    log_info "Consultando a API do GitHub para a versão mais recente..."
-    local CURL_OPTS=(-s -SL --fail --connect-timeout 10)
-    
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
-        CURL_OPTS+=(-H "Authorization: token $GITHUB_TOKEN")
+    # Verificar se temos permissão de escrita no diretório de destino ou onde ele será criado
+    local use_sudo_extract=""
+    local check_dir="$DEST_DIR"
+    while [ -n "$check_dir" ] && [ "$check_dir" != "/" ] && [ ! -d "$check_dir" ]; do
+        check_dir=$(dirname "$check_dir")
+    done
+    if [ ! -w "$check_dir" ]; then
+        use_sudo_extract="sudo"
+        log_info "Diretório de destino requer privilégios de superusuário. Usando sudo para extração..."
     fi
-
-    local API_URL="https://api.github.com/repos/${GITHUB_ORG}/${REPO}/releases/latest"
-    local RELEASE_JSON
-    
-    if ! RELEASE_JSON=$(curl "${CURL_OPTS[@]}" "$API_URL"); then
-        log_error "Falha ao consultar a API do GitHub em $API_URL."
-        log_error "Certifique-se de que o repositório é público ou que a variável GITHUB_TOKEN está configurada corretamente."
-        exit 1
-    fi
-
-    # Extrair tag e versão remota
-    local TAG_NAME
-    TAG_NAME=$(echo "$RELEASE_JSON" | jq -r '.tag_name // empty')
-    
-    if [ -z "$TAG_NAME" ]; then
-        log_error "Nenhuma tag ou release pública foi encontrada no repositório ${GITHUB_ORG}/${REPO}."
-        exit 1
-    fi
-
-    local REMOTE_VERSION
-    REMOTE_VERSION="${TAG_NAME#v}"
-    log_info "Versão mais recente no GitHub: ${REMOTE_VERSION}"
-
-    # Comparação de versões
-    if comparar_versoes "$LOCAL_VERSION" "$REMOTE_VERSION"; then
-        log_success "O sistema já está atualizado na versão mais recente (${LOCAL_VERSION})."
-        exit 0
-    elif [ $? -eq 2 ]; then
-        log_warn "A versão local (${LOCAL_VERSION}) é mais recente que a do GitHub (${REMOTE_VERSION}). Nenhuma ação necessária."
-        exit 0
-    fi
-
-    log_info "Uma nova versão (${REMOTE_VERSION}) foi encontrada! Iniciando processo de atualização..."
-
-    # --- 2. Filtro de Assets e Download ---
-    local DOWNLOAD_URL
-    DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
-
-    if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
-        log_warn "Nenhum asset pré-compilado '.tar.gz' foi encontrado. Usando o tarball de código fonte do release."
-        DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r '.tarball_url')
-    fi
-
-    if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
-        log_error "Não foi possível determinar a URL de download para o pacote."
-        exit 1
-    fi
-
-    # Criar arquivo temporário para download
-    local TEMP_FILE
-    TEMP_FILE=$(mktemp "/tmp/antigravity_${COMPONENTE}_XXXXXX.tar.gz")
-
-    # Garantir que o arquivo temporário seja limpo ao final
-    trap 'rm -f "'"${TEMP_FILE}"'"' EXIT
-
-    log_info "Baixando o pacote a partir de: $DOWNLOAD_URL"
-    if ! curl "${CURL_OPTS[@]}" -o "$TEMP_FILE" "$DOWNLOAD_URL"; then
-        log_error "Falha ao baixar o arquivo de atualização."
-        exit 1
-    fi
-    log_success "Download concluído com sucesso."
 
     # --- 3. Limpeza do Destino e Extração Limpa ---
     local SCRIPT_PATH
@@ -367,15 +451,18 @@ main() {
 
     log_info "Limpando diretório de destino antigo (mantendo o próprio script se residir lá)..."
     if [ ! -d "$DEST_DIR" ]; then
-        mkdir -p "$DEST_DIR"
+        $use_sudo_extract mkdir -p "$DEST_DIR"
     else
-        find "$DEST_DIR" -mindepth 1 -maxdepth 1 ! -samefile "$SCRIPT_PATH" -exec rm -rf {} +
+        $use_sudo_extract find "$DEST_DIR" -mindepth 1 -maxdepth 1 ! -samefile "$SCRIPT_PATH" -exec rm -rf {} +
     fi
 
     log_info "Extraindo o pacote..."
     
     local strip_flag=""
     local first_entry
+    
+    # Desativar temporariamente o pipefail para evitar erros de SIGPIPE (exit code 141) com head/grep
+    set +o pipefail
     first_entry=$(tar -tf "$TEMP_FILE" | head -n1)
     local prefix
     prefix=$(echo "$first_entry" | cut -d/ -f1)
@@ -386,8 +473,9 @@ main() {
     else
         log_info "Nenhum diretório raiz único detectado. Extraindo arquivos diretamente na raiz do destino."
     fi
+    set -o pipefail
 
-    if ! tar -xzf "$TEMP_FILE" -C "$DEST_DIR" ${strip_flag}; then
+    if ! $use_sudo_extract tar -xzf "$TEMP_FILE" -C "$DEST_DIR" ${strip_flag}; then
         log_error "Falha ao extrair os arquivos do pacote."
         exit 1
     fi
@@ -408,6 +496,66 @@ main() {
         else
             log_warn "O arquivo 'chrome-sandbox' não foi encontrado nesta versão extraída."
         fi
+    fi
+
+    # --- 5. Criar atalho no menu de aplicativos (.desktop) ---
+    if [[ "$COMPONENTE" == "ide" || "$COMPONENTE" == "2.0" ]]; then
+        local desktop_entry_dir=""
+        local use_sudo_desktop=""
+        
+        if [[ "$DEST_DIR" =~ ^/usr/ || "$DEST_DIR" =~ ^/opt/ ]]; then
+            desktop_entry_dir="/usr/share/applications"
+            use_sudo_desktop="sudo"
+        else
+            desktop_entry_dir="$HOME/.local/share/applications"
+            mkdir -p "$desktop_entry_dir"
+        fi
+
+        local desktop_file="${desktop_entry_dir}/antigravity-${COMPONENTE}.desktop"
+        log_info "Criando atalho de menu do sistema em: $desktop_file"
+        
+        # Definir o executável correto
+        local exec_path=""
+        local app_name=""
+        local icon_path=""
+
+        if [ "$COMPONENTE" = "ide" ]; then
+            exec_path="${DEST_DIR}/antigravity-ide"
+            app_name="Antigravity IDE"
+            icon_path="${DEST_DIR}/resources/app/resources/linux/code.png"
+        elif [ "$COMPONENTE" = "2.0" ]; then
+            exec_path="${DEST_DIR}/antigravity"
+            app_name="Antigravity 2.0"
+            # Usar o ícone da IDE como fallback se não houver um próprio no 2.0
+            if [ -f "/usr/share/antigravity-ide/resources/app/resources/linux/code.png" ]; then
+                icon_path="/usr/share/antigravity-ide/resources/app/resources/linux/code.png"
+            else
+                icon_path="system-run"
+            fi
+        fi
+
+        # Gerar o arquivo .desktop temporariamente e depois copiar para o destino correto
+        local temp_desktop
+        temp_desktop=$(mktemp "/tmp/antigravity_desktop_XXXXXX.desktop")
+        
+        cat <<EOF > "$temp_desktop"
+[Desktop Entry]
+Name=${app_name}
+Comment=Ambiente de Desenvolvimento Antigravity ${COMPONENTE}
+Exec=${exec_path} %F
+Icon=${icon_path}
+Type=Application
+Terminal=false
+Categories=Development;IDE;
+StartupNotify=true
+EOF
+
+        if $use_sudo_desktop cp "$temp_desktop" "$desktop_file" && $use_sudo_desktop chmod 644 "$desktop_file"; then
+            log_success "Atalho do menu do sistema criado com sucesso!"
+        else
+            log_warn "Não foi possível criar o atalho de menu em $desktop_file."
+        fi
+        rm -f "$temp_desktop"
     fi
 
     log_success "O componente ${COLOR_GREEN}${COMPONENTE}${COLOR_RESET} foi atualizado com sucesso para a versão ${COLOR_GREEN}${REMOTE_VERSION}${COLOR_RESET}!"

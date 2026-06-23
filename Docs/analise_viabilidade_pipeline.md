@@ -17,27 +17,78 @@ A implementação de uma CLI local de atualização em Bash é **totalmente viá
 O diagrama de fluxo abaixo resume o comportamento do script:
 
 ```mermaid
-graph TD
-    A["Início"] --> B{"Parâmetro fornecido?"}
-    B -->|Não/Inválido| C["Exibir Menu de Ajuda"]
-    B -->|Sim| D["Mapear Variáveis do Componente"]
-    D --> E["Verificar Dependências<br/>curl, jq"]
-    E --> F["Consultar API do GitHub<br/>para Versão Remota"]
-    F --> G{"package.json Local<br/>existe?"}
-    G -->|Sim| H["Extrair Versão Local"]
-    G -->|Não| I["Versão Local = 0.0.0"]
-    H --> J["Comparar Versões"]
+flowchart TD
+    %% Subgraphs for visual grouping
+    subgraph Init ["1. Inicialização & Validação"]
+        A(["Início"])
+        B{"Parâmetro fornecido?"}
+        C["Exibir Menu de Ajuda"]
+        D["Mapear Variáveis do Componente"]
+        E["Verificar Dependências<br/>(curl, jq)"]
+    end
+
+    subgraph Check ["2. Verificação de Versão"]
+        F["Consultar API do GitHub<br/>(Versão Remota)"]
+        G{"package.json Local<br/>existe?"}
+        H["Extrair Versão Local"]
+        I["Definir Versão Local = 0.0.0"]
+        J["Comparar Versões"]
+        K{"Versão Local<br/>== Remota?"}
+        L["Mensagem: Já Atualizado<br/>(Encerrar)"]
+    end
+
+    subgraph Install ["3. Download & Extração"]
+        M["Filtrar e Baixar .tar.gz<br/>em /tmp"]
+        N["Limpar Pasta Destino<br/>(Preservando o Script)"]
+        O["Extrair Tarball<br/>(Tratando Prefixo)"]
+    end
+
+    subgraph PostInstall ["4. Pós-Instalação & Conclusão"]
+        P{"Precisa de Sandbox<br/>& chrome-sandbox existe?"}
+        Q["Aplicar chown root:root<br/>& chmod 4755 (sudo)"]
+        R["Limpar Resíduos em /tmp"]
+        S(["Concluído"])
+    end
+
+    %% Flow connections
+    A --> B
+    B -->|Não / Inválido| C
+    B -->|Sim| D
+    D --> E
+    E --> F
+    F --> G
+    G -->|Sim| H
+    G -->|Não| I
+    H --> J
     I --> J
-    J --> K{"Versão Local<br/>== Remota?"}
-    K -->|Sim| L["Mensagem: Já Atualizado<br/>e Encerrar"]
-    K -->|Não| M["Filtrar e Baixar .tar.gz<br/>no /tmp"]
-    M --> N["Limpar Pasta Destino<br/>Mantendo o Script"]
-    N --> O["Extrair Tarball<br/>Tratando Prefixo"]
-    O --> P{"Precisa de Sandbox<br/>& chrome-sandbox existe?"}
-    P -->|Sim| Q["Aplicar chown root:root<br/>& chmod 4755 com sudo"]
-    P -->|Não| R["Limpar Resíduos<br/>no /tmp"]
+    J --> K
+    K -->|Sim| L
+    K -->|Não| M
+    M --> N
+    N --> O
+    O --> P
+    P -->|Sim| Q
+    P -->|Não| R
     Q --> R
-    R --> S["Concluído"]
+    R --> S
+
+    %% Styling Classes
+    classDef startEnd fill:#d1fae5,stroke:#10b981,stroke-width:2px,color:#065f46;
+    classDef process fill:#f1f5f9,stroke:#64748b,stroke-width:1.5px,color:#0f172a;
+    classDef decision fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f;
+    classDef terminal fill:#fee2e2,stroke:#ef4444,stroke-width:1.5px,color:#991b1b;
+
+    %% Apply classes
+    class A,S startEnd;
+    class D,E,F,H,I,J,M,N,O,Q,R process;
+    class B,G,K,P decision;
+    class C,L terminal;
+
+    %% Style subgraphs
+    style Init fill:#faf5ff,stroke:#d8b4fe,stroke-width:1px,color:#5b21b6
+    style Check fill:#f0fdf4,stroke:#bbf7d0,stroke-width:1px,color:#166534
+    style Install fill:#ecfeff,stroke:#a5f3fc,stroke-width:1px,color:#075985
+    style PostInstall fill:#fef2f2,stroke:#fecaca,stroke-width:1px,color:#991b1b
 ```
 
 ---

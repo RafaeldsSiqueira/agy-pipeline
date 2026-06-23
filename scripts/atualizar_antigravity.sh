@@ -3,38 +3,39 @@
 # Script: atualizar_antigravity.sh
 # Descrição: Pipeline local de automação e gerenciamento de versões para o
 #            ecossistema Antigravity 2.0 (IDE, 2.0, CLI, SDK).
-# Autor: Antigravity AI Assistant
-# Data: 17 de Junho de 2026
-# ==============================================================================
+# Autor: Rafael da Silva Siqueria
+## ==============================================================================
 
 # Modo estrito do Bash para garantir robustez e segurança
 set -euo pipefail
 
 # --- Carregar Variáveis de Ambiente (.env) ---
-# Procura e carrega o arquivo .env se ele existir na pasta pai ou na pasta do script
-readonly SCRIPT_DIR_ABS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-DOTENV_PATH=""
-if [ -f "${SCRIPT_DIR_ABS}/../.env" ]; then
-    DOTENV_PATH="${SCRIPT_DIR_ABS}/../.env"
-elif [ -f "${SCRIPT_DIR_ABS}/.env" ]; then
-    DOTENV_PATH="${SCRIPT_DIR_ABS}/.env"
-fi
+if [ "${TEST_ENV:-}" != "true" ]; then
+    # Procura e carrega o arquivo .env se ele existir na pasta pai ou na pasta do script
+    readonly SCRIPT_DIR_ABS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+    DOTENV_PATH=""
+    if [ -f "${SCRIPT_DIR_ABS}/../.env" ]; then
+        DOTENV_PATH="${SCRIPT_DIR_ABS}/../.env"
+    elif [ -f "${SCRIPT_DIR_ABS}/.env" ]; then
+        DOTENV_PATH="${SCRIPT_DIR_ABS}/.env"
+    fi
 
-if [ -n "$DOTENV_PATH" ]; then
-    while IFS= read -r line || [ -n "$line" ]; do
-        # Ignorar comentários e linhas vazias ou sem '='
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ "$line" != *=* ]] && continue
-        
-        # Extrair nome da variável e valor
-        var_name=$(echo "$line" | cut -d= -f1)
-        var_value=$(echo "$line" | cut -d= -f2-)
-        
-        # Só exportar se a variável não estiver previamente definida no ambiente
-        if [ -z "${!var_name:-}" ]; then
-            export "${var_name}=${var_value}"
-        fi
-    done < "$DOTENV_PATH"
+    if [ -n "$DOTENV_PATH" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            # Ignorar comentários e linhas vazias ou sem '='
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue
+            [[ "$line" != *=* ]] && continue
+            
+            # Extrair nome da variável e valor
+            var_name=$(echo "$line" | cut -d= -f1)
+            var_value=$(echo "$line" | cut -d= -f2-)
+            
+            # Só exportar se a variável não estiver previamente definida no ambiente
+            if [ -z "${!var_name:-}" ]; then
+                export "${var_name}=${var_value}"
+            fi
+        done < "$DOTENV_PATH"
+    fi
 fi
 
 # --- Configurações Globais ---
@@ -135,8 +136,24 @@ comparar_versoes() {
     fi
 }
 
-# --- Instalação do SDK via PyPI/pip ---
+# --- Instalação do SDK via PyPI/pip/uv ---
 instalar_atualizar_sdk() {
+    # 1. Tentar instalar via uv se disponível
+    if command -v uv &>/dev/null; then
+        log_info "Detectado gerenciador de pacotes uv rápido!"
+        log_info "Instalando/Atualizando 'google-antigravity' via uv..."
+        local uv_args=()
+        if [ -z "${VIRTUAL_ENV:-}" ]; then
+            uv_args+=("--system")
+        fi
+        if uv pip install --upgrade "${uv_args[@]}" google-antigravity; then
+            log_success "Antigravity SDK atualizado com sucesso via uv."
+            return 0
+        else
+            log_warn "Falha na instalação via uv. Tentando fallback para o pip tradicional..."
+        fi
+    fi
+
     log_info "Iniciando verificação do gerenciador de pacotes pip..."
     local PIP_CMD=""
     
@@ -175,7 +192,23 @@ main() {
     fi
 
     local COMPONENTE="$1"
-    local ARQUIVO_LOCAL="${2:-}"
+    local ARQUIVO_LOCAL_OR_VERSION="${2:-}"
+    local LOCAL_FILE_PATH=""
+    local TARGET_VERSION=""
+
+    if [ -n "$ARQUIVO_LOCAL_OR_VERSION" ]; then
+        if [ -f "$ARQUIVO_LOCAL_OR_VERSION" ]; then
+            LOCAL_FILE_PATH=$(realpath "$ARQUIVO_LOCAL_OR_VERSION")
+        elif [[ "$ARQUIVO_LOCAL_OR_VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            TARGET_VERSION="$ARQUIVO_LOCAL_OR_VERSION"
+            if [[ ! "$TARGET_VERSION" =~ ^v ]]; then
+                TARGET_VERSION="v${TARGET_VERSION}"
+            fi
+        else
+            log_error "O argumento fornecido não é um arquivo existente nem uma versão válida: $ARQUIVO_LOCAL_OR_VERSION"
+            exit 1
+        fi
+    fi
 
     # Verificar opção de ajuda
     if [ "$COMPONENTE" = "-h" ] || [ "$COMPONENTE" = "--help" ]; then
@@ -198,7 +231,21 @@ main() {
                     DEST_DIR="$target_base"
                 fi
             else
-                DEST_DIR="$HOME/antigravity-ide"
+                # Busca dinâmica por instalação existente
+                local found_dir=""
+                local paths=()
+                if [ "${TEST_ENV:-}" != "true" ]; then
+                    paths=("/usr/share/antigravity-ide" "/opt/antigravity-ide" "$HOME/.local/share/antigravity-ide" "$HOME/antigravity-ide")
+                else
+                    paths=("$HOME/.local/share/antigravity-ide" "$HOME/antigravity-ide")
+                fi
+                for path in "${paths[@]}"; do
+                    if [ -d "$path" ]; then
+                        found_dir="$path"
+                        break
+                    fi
+                done
+                DEST_DIR="${found_dir:-$HOME/antigravity-ide}"
             fi
             NEED_SANDBOX=true
             ;;
@@ -211,14 +258,70 @@ main() {
                     DEST_DIR="$target_base"
                 fi
             else
-                DEST_DIR="$HOME/antigravity-2.0"
+                # Busca dinâmica por instalação existente
+                local found_dir=""
+                # 1. Tentar extrair do wrapper sh se ele existir no PATH
+                if command -v antigravity &>/dev/null; then
+                    local ant_cmd
+                    ant_cmd=$(command -v antigravity)
+                    if file "$ant_cmd" | grep -q "text"; then
+                        local extracted_path
+                        extracted_path=$(grep -oE '/[^"]+/antigravity' "$ant_cmd" | head -n1 || true)
+                        if [ -n "$extracted_path" ]; then
+                            local dir_candidate
+                            dir_candidate=$(dirname "$extracted_path")
+                            if [ -d "$dir_candidate" ]; then
+                                found_dir="$dir_candidate"
+                            fi
+                        fi
+                    fi
+                fi
+                # 2. Buscar em diretórios de instalação comuns se não foi encontrado no PATH
+                if [ -z "$found_dir" ]; then
+                    local paths=()
+                    if [ "${TEST_ENV:-}" != "true" ]; then
+                        paths=("/usr/share/antigravity-2.0" "/usr/share/antigravity" "/opt/antigravity-2.0" "/opt/antigravity" "$HOME/.local/share/antigravity" "$HOME/antigravity-2.0")
+                    else
+                        paths=("$HOME/.local/share/antigravity" "$HOME/antigravity-2.0")
+                    fi
+                    for path in "${paths[@]}"; do
+                        if [ -d "$path" ]; then
+                            found_dir="$path"
+                            break
+                        fi
+                    done
+                fi
+                DEST_DIR="${found_dir:-$HOME/antigravity-2.0}"
             fi
             NEED_SANDBOX=true
             ;;
         cli)
             # Caso caia no fallback do GitHub Releases
             REPO="agy-pipeline"
-            DEST_DIR="${DEST_DIR:-$HOME/antigravity-cli}"
+            if [ -n "$target_base" ]; then
+                DEST_DIR="$target_base"
+            else
+                # Busca dinâmica por instalação existente do CLI
+                local found_dir=""
+                if command -v agy &>/dev/null; then
+                    local agy_path
+                    agy_path=$(command -v agy)
+                    if [ -f "$agy_path" ]; then
+                        local parent_dir
+                        parent_dir=$(dirname "$agy_path")
+                        if [ -w "$parent_dir" ]; then
+                            found_dir="$parent_dir"
+                        fi
+                    fi
+                fi
+                # Se não encontrar, tenta ~/.local/bin (padrão de instalação do usuário)
+                if [ -z "$found_dir" ]; then
+                    if [ -d "$HOME/.local/bin" ] && [ -w "$HOME/.local/bin" ]; then
+                        found_dir="$HOME/.local/bin"
+                    fi
+                fi
+                DEST_DIR="${found_dir:-$HOME/antigravity-cli}"
+            fi
             NEED_SANDBOX=false
             ;;
         sdk)
@@ -232,17 +335,9 @@ main() {
             ;;
     esac
 
-    # Procurar por arquivo local caso seja ide ou 2.0
-    local LOCAL_FILE_PATH=""
+    # Procurar por arquivo local caso seja ide ou 2.0 (se não foi passado via argumento)
     if [[ "$COMPONENTE" == "ide" || "$COMPONENTE" == "2.0" ]]; then
-        if [ -n "$ARQUIVO_LOCAL" ]; then
-            if [ -f "$ARQUIVO_LOCAL" ]; then
-                LOCAL_FILE_PATH=$(realpath "$ARQUIVO_LOCAL")
-            else
-                log_error "O arquivo local especificado não existe: $ARQUIVO_LOCAL"
-                exit 1
-            fi
-        else
+        if [ -z "$LOCAL_FILE_PATH" ] && [ -z "$TARGET_VERSION" ]; then
             # Tentar autodetectar na pasta Downloads
             if [ "$COMPONENTE" = "ide" ]; then
                 if [ -f "$HOME/Downloads/Antigravity IDE.tar.gz" ]; then
@@ -270,9 +365,9 @@ main() {
         log_info "Detectado arquivo local para instalação: ${COLOR_GREEN}${LOCAL_FILE_PATH}${COLOR_RESET}"
     fi
 
-    # Se for a IDE ou 2.0 (Desktop) em ambiente normal E não houver arquivo local,
+    # Se for a IDE ou 2.0 (Desktop) em ambiente normal E não houver arquivo local, E não houver versão alvo específica,
     # o aplicativo se auto-atualiza de fundo.
-    if [[ "$COMPONENTE" == "ide" || "$COMPONENTE" == "2.0" ]] && [[ "${TEST_ENV:-}" != "true" ]] && [[ -z "$LOCAL_FILE_PATH" ]]; then
+    if [[ "$COMPONENTE" == "ide" || "$COMPONENTE" == "2.0" ]] && [[ "${TEST_ENV:-}" != "true" ]] && [[ -z "$LOCAL_FILE_PATH" ]] && [[ -z "$TARGET_VERSION" ]]; then
         log_info "Para o Antigravity 2.0 Desktop/IDE, o aplicativo gerencia as próprias atualizações em segundo plano nativamente."
         log_info "Caso precise baixar ou reinstalar a build mais recente, acesse: https://antigravity.google/download"
         log_info "----------------------------------------"
@@ -364,20 +459,27 @@ main() {
             log_warn "Instalação local não encontrada ou package.json ausente (será considerada como versão 0.0.0)."
         fi
 
-        # Consultar API do GitHub para obter a versão remota (latest)
-        log_info "Consultando a API do GitHub para a versão mais recente..."
+        # Consultar API do GitHub para obter a versão remota
         local CURL_OPTS=(-s -SL --fail --connect-timeout 10)
         
         if [ -n "${GITHUB_TOKEN:-}" ]; then
             CURL_OPTS+=(-H "Authorization: token $GITHUB_TOKEN")
         fi
 
-        local API_URL="https://api.github.com/repos/${GITHUB_ORG}/${REPO}/releases/latest"
+        local API_URL=""
+        if [ -n "$TARGET_VERSION" ]; then
+            API_URL="https://api.github.com/repos/${GITHUB_ORG}/${REPO}/releases/tags/${TARGET_VERSION}"
+            log_info "Consultando a API do GitHub para a versão específica: ${TARGET_VERSION}..."
+        else
+            API_URL="https://api.github.com/repos/${GITHUB_ORG}/${REPO}/releases/latest"
+            log_info "Consultando a API do GitHub para a versão mais recente..."
+        fi
+        
         local RELEASE_JSON
         
         if ! RELEASE_JSON=$(curl "${CURL_OPTS[@]}" "$API_URL"); then
             log_error "Falha ao consultar a API do GitHub em $API_URL."
-            log_error "Certifique-se de que o repositório é público ou que a variável GITHUB_TOKEN está configurada corretamente."
+            log_error "Certifique-se de que a tag existe, o repositório é público ou que a variável GITHUB_TOKEN está configurada corretamente."
             exit 1
         fi
 
@@ -391,18 +493,21 @@ main() {
         fi
 
         REMOTE_VERSION="${TAG_NAME#v}"
-        log_info "Versão mais recente no GitHub: ${REMOTE_VERSION}"
+        log_info "Versão no GitHub: ${REMOTE_VERSION}"
 
-        # Comparação de versões
-        if comparar_versoes "$LOCAL_VERSION" "$REMOTE_VERSION"; then
-            log_success "O sistema já está atualizado na versão mais recente (${LOCAL_VERSION})."
-            exit 0
-        elif [ $? -eq 2 ]; then
-            log_warn "A versão local (${LOCAL_VERSION}) é mais recente que a do GitHub (${REMOTE_VERSION}). Nenhuma ação necessária."
-            exit 0
+        # Comparação de versões (apenas se não foi especificada uma versão alvo)
+        if [ -z "$TARGET_VERSION" ]; then
+            if comparar_versoes "$LOCAL_VERSION" "$REMOTE_VERSION"; then
+                log_success "O sistema já está atualizado na versão mais recente (${LOCAL_VERSION})."
+                exit 0
+            elif [ $? -eq 2 ]; then
+                log_warn "A versão local (${LOCAL_VERSION}) é mais recente que a do GitHub (${REMOTE_VERSION}). Nenhuma ação necessária."
+                exit 0
+            fi
+            log_info "Uma nova versão (${REMOTE_VERSION}) foi encontrada! Iniciando processo de atualização..."
+        else
+            log_info "Iniciando instalação/downgrade forçado para a versão selecionada: ${REMOTE_VERSION}..."
         fi
-
-        log_info "Uma nova versão (${REMOTE_VERSION}) foi encontrada! Iniciando processo de atualização..."
 
         # --- 2. Filtro de Assets e Download ---
         local DOWNLOAD_URL
@@ -430,6 +535,41 @@ main() {
             exit 1
         fi
         log_success "Download concluído com sucesso."
+
+        # --- Validação de Integridade (Checksum SHA-256) sem travamento ---
+        log_info "Verificando disponibilidade de checksum SHA-256 no servidor..."
+        local CHECKSUM_URL="${DOWNLOAD_URL}.sha256"
+        
+        # Testar se o arquivo de checksum existe no servidor (usando HEAD request com timeout curto)
+        local http_code
+        http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 "${CHECKSUM_URL}" || echo "000")
+        
+        if [ "$http_code" = "200" ]; then
+            log_info "Arquivo de checksum localizado. Baixando e validando integridade..."
+            local TEMP_SHA
+            TEMP_SHA=$(mktemp "/tmp/antigravity_sha256_XXXXXX")
+            trap 'rm -f "'"${TEMP_FILE}"'" "'"${TEMP_SHA}"'"' EXIT
+            
+            if curl -s -SL --connect-timeout 5 --max-time 10 -o "$TEMP_SHA" "$CHECKSUM_URL"; then
+                local expected_sha
+                expected_sha=$(awk '{print $1}' "$TEMP_SHA" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+                
+                local actual_sha
+                actual_sha=$(sha256sum "$TEMP_FILE" | awk '{print $1}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+                
+                if [ "$expected_sha" = "$actual_sha" ]; then
+                    log_success "Validação de integridade SHA-256 concluída com sucesso!"
+                else
+                    log_error "FALHA CRÍTICA DE INTEGRIDADE: O hash do arquivo baixado ($actual_sha) não corresponde ao esperado ($expected_sha)!"
+                    exit 1
+                fi
+            else
+                log_warn "Falha ao baixar o arquivo de checksum. Prosseguindo por segurança (sem travar)..."
+            fi
+            rm -f "$TEMP_SHA"
+        else
+            log_warn "Arquivo de checksum não encontrado no servidor (HTTP $http_code). Prosvendo sem validação de integridade..."
+        fi
     fi
 
     # Verificar se temos permissão de escrita no diretório de destino ou onde ele será criado
@@ -443,15 +583,30 @@ main() {
         log_info "Diretório de destino requer privilégios de superusuário. Usando sudo para extração..."
     fi
 
-    # --- 3. Limpeza do Destino e Extração Limpa ---
+    # --- 3. Limpeza do Destino e Extração Limpa com suporte a Rollback ---
     local SCRIPT_PATH
     SCRIPT_PATH=$(realpath "$0")
 
-    log_info "Limpando diretório de destino antigo (mantendo o próprio script se residir lá)..."
-    if [ ! -d "$DEST_DIR" ]; then
-        $use_sudo_extract mkdir -p "$DEST_DIR"
-    else
-        $use_sudo_extract find "$DEST_DIR" -mindepth 1 -maxdepth 1 ! -samefile "$SCRIPT_PATH" -exec rm -rf {} +
+    local backup_dir="${DEST_DIR}.bak"
+    local has_backup=false
+
+    if [ -d "$DEST_DIR" ]; then
+        log_info "Criando backup de segurança da versão anterior..."
+        if $use_sudo_extract mv "$DEST_DIR" "$backup_dir"; then
+            has_backup=true
+        else
+            log_warn "Não foi possível criar o backup de segurança. Continuando..."
+        fi
+    fi
+
+    log_info "Criando diretório de destino limpo..."
+    if ! $use_sudo_extract mkdir -p "$DEST_DIR"; then
+        log_error "Falha ao criar o diretório de destino."
+        if [ "$has_backup" = true ]; then
+            log_info "Desfazendo alterações (Rollback)..."
+            $use_sudo_extract mv "$backup_dir" "$DEST_DIR"
+        fi
+        exit 1
     fi
 
     log_info "Extraindo o pacote..."
@@ -475,7 +630,19 @@ main() {
 
     if ! $use_sudo_extract tar -xzf "$TEMP_FILE" -C "$DEST_DIR" ${strip_flag}; then
         log_error "Falha ao extrair os arquivos do pacote."
+        if [ "$has_backup" = true ]; then
+            log_info "Extração falhou! Iniciando Rollback automático..."
+            $use_sudo_extract rm -rf "$DEST_DIR"
+            $use_sudo_extract mv "$backup_dir" "$DEST_DIR"
+            log_success "Rollback concluído. A versão anterior foi restaurada."
+        fi
         exit 1
+    fi
+
+    # Se a extração funcionou, podemos limpar o backup com segurança
+    if [ "$has_backup" = true ]; then
+        log_info "Atualização bem-sucedida. Removendo backup da versão antiga..."
+        $use_sudo_extract rm -rf "$backup_dir"
     fi
     log_success "Extração concluída com sucesso em: $DEST_DIR"
 
@@ -550,6 +717,10 @@ EOF
 
         if $use_sudo_desktop cp "$temp_desktop" "$desktop_file" && $use_sudo_desktop chmod 644 "$desktop_file"; then
             log_success "Atalho do menu do sistema criado com sucesso!"
+            # Recarregar o banco de dados de atalhos
+            if command -v update-desktop-database &>/dev/null; then
+                $use_sudo_desktop update-desktop-database "$desktop_entry_dir" 2>/dev/null || true
+            fi
         else
             log_warn "Não foi possível criar o atalho de menu em $desktop_file."
         fi
